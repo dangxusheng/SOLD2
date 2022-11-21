@@ -2,11 +2,11 @@
 model_name: "lcnn_simple"
 model_architecture: "simple"
 # Backbone related config
-backbone: "lcnn"
+backbone: "superpoint"
 backbone_cfg:
   input_channel: 1 # Use RGB images or grayscale images.
-  depth: 4
-  num_stacks: 2
+  depth: 1
+  num_stacks: 1
   num_blocks: 1
   num_classes: 5
 # Junction decoder related config
@@ -26,26 +26,26 @@ prob_thresh: 0.5
 ### [Loss parameters]
 weighting_policy: "dynamic"
 # [Heatmap loss]
-w_heatmap: 0.
+w_heatmap: 1.0
 w_heatmap_class: 1
 heatmap_loss_func: "cross_entropy"
 heatmap_loss_cfg:
-  policy: "dynamic"
+  policy: "static"
 # [Junction loss]
-w_junc: 0.
+w_junc: 1.0
 junction_loss_func: "superpoint"
 junction_loss_cfg:
-  policy: "dynamic"
+  policy: "static"
 
 ### [Training parameters]
-learning_rate: 0.0005
+learning_rate: 0.00008
 epochs: 200
 train:
-  batch_size: 6
-  num_workers: 8
+  batch_size: 256
+  num_workers: 2
 test:
-  batch_size: 6
-  num_workers: 8
+  batch_size: 32
+  num_workers: 4
 disp_freq: 100
 summary_freq: 20
 save_freq: 5

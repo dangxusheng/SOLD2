@@ -2,7 +2,7 @@
 model_name: "lcnn_simple"
 model_architecture: "simple"
 # Backbone related config
-backbone: "lcnn"
+backbone: "superpoint"
 backbone_cfg:
   input_channel: 1 # Use RGB images or grayscale images.
   depth: 4
@@ -38,14 +38,19 @@ junction_loss_cfg:
   policy: "dynamic"
 
 ### [Training parameters]
-learning_rate: 0.0005
-epochs: 200
+learning_rate: 0.00008
+lr_decay: True
+lr_decay_cfg:
+  policy: "multi_step"
+  gamma: 0.96
+  steps: [30, 50, 80, 120, 150, 200]
+epochs: 400
 train:
-  batch_size: 6
+  batch_size: 128
   num_workers: 8
 test:
-  batch_size: 6
-  num_workers: 8
+  batch_size: 32
+  num_workers: 4
 disp_freq: 100
 summary_freq: 20
 save_freq: 5

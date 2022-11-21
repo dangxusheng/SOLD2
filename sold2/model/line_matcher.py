@@ -1,6 +1,7 @@
 """
 Implements the full pipeline from raw images to line matches.
 """
+import os
 import time
 import cv2
 import numpy as np
@@ -28,8 +29,12 @@ class LineMatcher(object):
         
         # Initialize the cnn backbone
         self.model = get_model(model_cfg, loss_weights)
-        checkpoint = torch.load(ckpt_path, map_location=self.device)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        if ckpt_path is not None and os.path.exists(ckpt_path):
+            checkpoint = torch.load(ckpt_path, map_location=self.device)
+            # self.model.load_state_dict(checkpoint["model_state_dict"])
+            # TODO: 为了评测使用合成数据集训练的模型, 这时候还没有desc参数会报错
+            self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+
         self.model = self.model.to(self.device)
         self.model = self.model.eval()
 
@@ -70,10 +75,23 @@ class LineMatcher(object):
 
         outputs = {"descriptor": net_outputs["descriptors"]}
 
+        # a = net_outputs['junctions'].cpu().numpy()
+        # b = net_outputs['heatmap'].cpu().numpy()
+        # c = net_outputs['descriptors'].cpu().numpy()
+        # print('junction: ',a.shape,  a.reshape(-1)[:10])
+        # print('heatmap: ', b.shape, b.reshape(-1)[:10])
+        # print('descriptor: ', c.shape, c.reshape(-1)[:10])
+
+
         if not desc_only:
             junc_np = convert_junc_predictions(
                 net_outputs["junctions"], self.grid_size,
                 self.junc_detect_thresh, self.max_num_junctions)
+
+            # print('junc_pred: ', junc_np['junc_pred'].reshape(-1)[:10])
+            # print('junc_pred_nms: ', junc_np['junc_pred_nms'].reshape(-1)[:10])
+            # print('junc_prob: ', junc_np['junc_prob'].reshape(-1)[:10])
+
             if valid_mask is None:
                 junctions = np.where(junc_np["junc_pred_nms"].squeeze())
             else:

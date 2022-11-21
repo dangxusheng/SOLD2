@@ -2,7 +2,7 @@
 model_name: "lcnn_simple"
 model_architecture: "simple"
 # Backbone related config
-backbone: "lcnn"
+backbone: "superpoint"
 backbone_cfg:
   input_channel: 1 # Use RGB images or grayscale images.
   depth: 4
@@ -15,6 +15,9 @@ junc_decoder_cfg:
 # Heatmap decoder related config
 heatmap_decoder: "pixel_shuffle"
 heatmap_decoder_cfg:
+# Descriptor decoder related config
+descriptor_decoder: "superpoint_descriptor"
+descriptor_decoder_cfg:
 # Shared configurations
 grid_size: 8
 keep_border_valid: True
@@ -36,17 +39,30 @@ w_junc: 0.
 junction_loss_func: "superpoint"
 junction_loss_cfg:
   policy: "dynamic"
+# [Descriptor loss]
+w_desc: 0.
+descriptor_loss_func: "regular_sampling"
+descriptor_loss_cfg:
+  dist_threshold: 4
+  grid_size: 4
+  margin: 1
+  policy: "dynamic"
 
 ### [Training parameters]
 learning_rate: 0.0005
-epochs: 200
+lr_decay: True
+lr_decay_cfg:
+  policy: "multi_step"
+  gamma: 0.96
+  steps: [30, 50, 80, 120]
+epochs: 400
 train:
-  batch_size: 6
+  batch_size: 4
   num_workers: 8
 test:
-  batch_size: 6
+  batch_size: 4
   num_workers: 8
 disp_freq: 100
-summary_freq: 20
 save_freq: 5
-max_ckpt: 150
+summary_freq: 200
+max_ckpt: 130

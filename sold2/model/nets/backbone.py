@@ -6,6 +6,7 @@ from .lcnn_hourglass import MultitaskHead, hg
 
 class HourglassBackbone(nn.Module):
     """ Hourglass backbone. """
+
     def __init__(self, input_channel=1, depth=4, num_stacks=2,
                  num_blocks=1, num_classes=5):
         super(HourglassBackbone, self).__init__()
@@ -25,13 +26,20 @@ class HourglassBackbone(nn.Module):
 
 class SuperpointBackbone(nn.Module):
     """ SuperPoint backbone. """
+
     def __init__(self):
         super(SuperpointBackbone, self).__init__()
         self.relu = torch.nn.ReLU(inplace=True)
         self.pool = torch.nn.MaxPool2d(kernel_size=2, stride=2)
+        input_channel = 1
         c1, c2, c3, c4 = 64, 64, 128, 128
+
+        # TODO： 通道裁剪
+        ch_scale = 2
+        c1, c2, c3, c4 = (i//ch_scale for i in [c1, c2, c3, c4])
+
         # Shared Encoder.
-        self.conv1a = torch.nn.Conv2d(1, c1, kernel_size=3,
+        self.conv1a = torch.nn.Conv2d(input_channel, c1, kernel_size=3,
                                       stride=1, padding=1)
         self.conv1b = torch.nn.Conv2d(c1, c1, kernel_size=3,
                                       stride=1, padding=1)
@@ -47,7 +55,7 @@ class SuperpointBackbone(nn.Module):
                                       stride=1, padding=1)
         self.conv4b = torch.nn.Conv2d(c4, c4, kernel_size=3,
                                       stride=1, padding=1)
-    
+
     def forward(self, input_images):
         # Shared Encoder.
         x = self.relu(self.conv1a(input_images))

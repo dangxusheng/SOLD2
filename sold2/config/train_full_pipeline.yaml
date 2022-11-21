@@ -58,5 +58,6 @@ test:
   batch_size: 4
   num_workers: 8
 disp_freq: 100
+save_freq: 5
 summary_freq: 200
 max_ckpt: 130

@@ -2,6 +2,14 @@
 Main file to launch training and testing experiments.
 """
 
+#########################################################################
+PRINT_SAVE_FILE_FLAG = 0
+if PRINT_SAVE_FILE_FLAG:
+    from .overwrite_print import *
+
+    set_log('experiments/sold2_synth_superpoint_128x128_ft2/train.log')
+#########################################################################
+
 import yaml
 import os
 import argparse
@@ -11,7 +19,6 @@ import torch
 from .config.project_config import Config as cfg
 from .train import train_net
 from .export import export_predictions, export_homograpy_adaptation
-
 
 # Pytorch configurations
 torch.cuda.empty_cache()
@@ -60,12 +67,12 @@ def record_config(model_cfg, dataset_cfg, output_path):
     """ Record dataset config to the log path. """
     # Record model config
     with open(os.path.join(output_path, "model_cfg.yaml"), "w") as f:
-            yaml.safe_dump(model_cfg, f)
-    
+        yaml.safe_dump(model_cfg, f)
+
     # Record dataset config
     with open(os.path.join(output_path, "dataset_cfg.yaml"), "w") as f:
-            yaml.safe_dump(dataset_cfg, f)
-    
+        yaml.safe_dump(dataset_cfg, f)
+
 
 def train(args, dataset_cfg, model_cfg, output_path):
     """ Training function. """
@@ -73,7 +80,7 @@ def train(args, dataset_cfg, model_cfg, output_path):
     if args.resume:
         if os.path.realpath(output_path) != os.path.realpath(args.resume_path):
             record_config(model_cfg, dataset_cfg, output_path)
-        
+
     # First time, then write the config file to the output path
     else:
         record_config(model_cfg, dataset_cfg, output_path)
@@ -160,7 +167,7 @@ if __name__ == "__main__":
 
     # Check if dataset config and model config is given.
     if (((args.dataset_config is None) or (args.model_config is None))
-        and (not args.resume) and (args.mode == "train")):
+            and (not args.resume) and (args.mode == "train")):
         raise ValueError(
             "[Error] The dataset config and model config should be given in non-resume mode")
 
@@ -180,9 +187,9 @@ if __name__ == "__main__":
                 raise ValueError("[Error] Missing checkpoint: "
                                  + checkpoint_path)
         dataset_cfg = load_config(args.dataset_config)
-        model_cfg = load_config(args.model_config)       
+        model_cfg = load_config(args.model_config)
 
-    # [resume Training, Test, Export] Load the config file.
+        # [resume Training, Test, Export] Load the config file.
     elif (args.mode == "train" and args.resume) or (args.mode == "export"):
         # Check checkpoint path exists
         checkpoint_folder = args.resume_path
@@ -200,7 +207,7 @@ if __name__ == "__main__":
             model_cfg = load_config(model_cfg_path)
         else:
             model_cfg = load_config(args.model_config)
-        
+
         # Load dataset_cfg from checkpoint folder if not provided
         if args.dataset_config is None:
             print("[Info] No dataset config provided. Loading from checkpoint folder.")
@@ -212,13 +219,13 @@ if __name__ == "__main__":
             dataset_cfg = load_config(dataset_cfg_path)
         else:
             dataset_cfg = load_config(args.dataset_config)
-        
+
         # Check the --export_dataset_mode flag
         if (args.mode == "export") and (args.export_dataset_mode is None):
             raise ValueError("[Error] Empty --export_dataset_mode flag.")
     else:
         raise ValueError("[Error] Unknown mode: " + args.mode)
-    
+
     # Set the random seed
     seed = dataset_cfg.get("random_seed", 0)
     set_random_seed(seed)

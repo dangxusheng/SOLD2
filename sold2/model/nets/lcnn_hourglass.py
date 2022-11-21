@@ -120,11 +120,13 @@ class HourglassNet(nn.Module):
                  num_classes, input_channels):
         super(HourglassNet, self).__init__()
 
-        self.inplanes = 64
-        self.num_feats = 128
+        # TODO： 通道裁剪
+        ch_scale = 1
+        self.inplanes = 64 // ch_scale
+        self.num_feats = 128 // ch_scale
+
         self.num_stacks = num_stacks
-        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7,
-                               stride=2, padding=3)
+        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_residual(block, self.inplanes, 1)
@@ -216,7 +218,7 @@ def hg(**kwargs):
     model = HourglassNet(
         Bottleneck2D,
         head=kwargs.get("head",
-                        lambda c_in, c_out: nn.Conv2D(c_in, c_out, 1)),
+                        lambda c_in, c_out: nn.Conv2d(c_in, c_out, 1)),
         depth=kwargs["depth"],
         num_stacks=kwargs["num_stacks"],
         num_blocks=kwargs["num_blocks"],
@@ -224,3 +226,16 @@ def hg(**kwargs):
         input_channels=kwargs["input_channels"]
     )
     return model
+
+
+"""
+python sold2/model/nets/lcnn_hourglass.py
+"""
+
+if __name__ == '__main__':
+    x = torch.randn(1, 1, 128, 128)
+    m = hg(depth=1, num_stacks=1, num_blocks=1, num_classes=1, input_channels=1)
+    outs, y = m(x)
+    for out in outs:
+        print(out.shape)
+    print(y.shape)

@@ -11,10 +11,10 @@ import h5py
 import torch
 from tqdm import tqdm
 
-from config.project_config import Config as cfg
-from model.line_detection import LineSegmentDetectionModule
-from model.metrics import super_nms
-from misc.train_utils import parse_h5_data
+from sold2.config.project_config import Config as cfg
+from sold2.model.line_detection import LineSegmentDetectionModule
+from sold2.model.metrics import super_nms
+from sold2.misc.train_utils import parse_h5_data
 
 
 def convert_raw_exported_predictions(input_data, grid_size=8,

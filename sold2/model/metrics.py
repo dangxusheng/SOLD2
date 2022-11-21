@@ -327,8 +327,8 @@ class junction_pr(object):
             tn_lst.append(tn)
             fp_lst.append(fp)
             fn_lst.append(fn)
-            precision_lst.append(tp / (tp + fp))
-            recall_lst.append(tp / (tp + fn))
+            precision_lst.append(tp / (tp + fp + 1))
+            recall_lst.append(tp / (tp + fn + 1))
 
         return {
             "tp": np.array(tp_lst),

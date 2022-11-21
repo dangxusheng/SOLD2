@@ -155,7 +155,10 @@ def export_homograpy_adaptation(args, dataset_cfg, model_cfg, output_path,
     model = get_model(model_cfg, mode="test")
     checkpoint = get_latest_checkpoint(args.resume_path, args.checkpoint_name,
                                        device)
-    model = restore_weights(model, checkpoint["model_state_dict"])
+    if checkpoint is not None:
+        model = restore_weights(model, checkpoint["model_state_dict"])
+        print("\t Successfully load weight...")
+
     model = model.to(device).eval()
     print("\t Successfully initialized model")
 
@@ -235,16 +238,15 @@ def homography_adaptation(input_images, model, grid_size, homography_cfg):
         H_inv_tensor = torch.inverse(H_tensor)
 
         # Perform the homography warp
-        images_warped = warp_perspective(input_images, H_tensor, (H, W),
-                                         flags="bilinear")
+        images_warped = warp_perspective(input_images, H_tensor, (H, W), mode="bilinear")
         
         # Warp the mask
         masks_junc_warped = warp_perspective(
             torch.ones([batch_size, 1, H, W], device=device),
-            H_tensor, (H, W), flags="nearest")
+            H_tensor, (H, W), mode="nearest")
         masks_heatmap_warped = warp_perspective(
             torch.ones([batch_size, 1, H, W], device=device),
-            H_tensor, (H, W), flags="nearest")
+            H_tensor, (H, W), mode="nearest")
 
         # Run the network forward pass
         with torch.no_grad():
@@ -254,17 +256,17 @@ def homography_adaptation(input_images, model, grid_size, homography_cfg):
         junc_prob_warped = pixel_shuffle(softmax(
             outputs["junctions"], dim=1)[:, :-1, :, :], grid_size)
         junc_prob = warp_perspective(junc_prob_warped, H_inv_tensor,
-                                     (H, W), flags="bilinear")
+                                     (H, W), mode="bilinear")
 
         # Create the out of boundary mask
         out_boundary_mask = warp_perspective(
             torch.ones([batch_size, 1, H, W], device=device),
-            H_inv_tensor, (H, W), flags="nearest")
+            H_inv_tensor, (H, W), mode="nearest")
         out_boundary_mask = adjust_border(out_boundary_mask, device, margin)
 
         junc_prob = junc_prob * out_boundary_mask
         junc_count = warp_perspective(masks_junc_warped * out_boundary_mask,
-                                      H_inv_tensor, (H, W), flags="nearest")
+                                      H_inv_tensor, (H, W), mode="nearest")
 
         # Unwarp the mask and heatmap prediction
         # Always fetch only one channel
@@ -277,9 +279,9 @@ def homography_adaptation(input_images, model, grid_size, homography_cfg):
         
         heatmap_prob_warped = heatmap_prob_warped * masks_heatmap_warped
         heatmap_prob = warp_perspective(heatmap_prob_warped, H_inv_tensor,
-                                        (H, W), flags="bilinear")
+                                        (H, W), mode="bilinear")
         heatmap_count = warp_perspective(masks_heatmap_warped, H_inv_tensor,
-                                         (H, W), flags="nearest")
+                                         (H, W), mode="nearest")
 
         # Record the results
         junc_probs[:, idx:idx+1, :, :] = junc_prob

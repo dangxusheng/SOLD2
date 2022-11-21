@@ -1,6 +1,9 @@
 """
 This file implements the training process and all the summaries
 """
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 import os
 import numpy as np
 import cv2
@@ -41,7 +44,7 @@ def restore_weights(model, state_dict, strict=True):
     # Deal with some version compatibility issue (catch version incompatible)
     except:
         err = model.load_state_dict(state_dict, strict=False)
-        
+
         # missing keys are those in model but not in state_dict
         missing_keys = err.missing_keys
         # Unexpected keys are those in state_dict but not in model
@@ -53,7 +56,9 @@ def restore_weights(model, state_dict, strict=True):
             dict_keys = [_ for _ in unexpected_keys if not "tracked" in _]
             model_dict[key] = state_dict[dict_keys[idx]]
         model.load_state_dict(model_dict)
-    
+
+    print('\t Successfully restore weights...')
+
     return model
 
 
@@ -68,24 +73,26 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
     train_cfg = model_cfg["train"]
     test_cfg = model_cfg["test"]
 
+    save_freq = model_cfg.get('save_freq', 5)
+
     # Create train and test dataset
     print("\t Initializing dataset...")
     train_dataset, train_collate_fn = get_dataset("train", dataset_cfg)
-    test_dataset, test_collate_fn = get_dataset("test", dataset_cfg)
 
     # Create the dataloader
     train_loader = DataLoader(train_dataset,
                               batch_size=train_cfg["batch_size"],
-                              num_workers=8,
+                              num_workers=train_cfg.get("num_workers", 2),
                               shuffle=True, pin_memory=True,
                               collate_fn=train_collate_fn)
+    # TODO： SWITCH
+    test_dataset, test_collate_fn = get_dataset("test", dataset_cfg)
     test_loader = DataLoader(test_dataset,
                              batch_size=test_cfg.get("batch_size", 1),
                              num_workers=test_cfg.get("num_workers", 1),
                              shuffle=False, pin_memory=False,
                              collate_fn=test_collate_fn)
     print("\t Successfully intialized dataloaders.")
-
 
     # Get the loss function and weight first
     loss_funcs, loss_weights = get_loss_and_weights(model_cfg)
@@ -100,10 +107,13 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
         model = model.cuda()
         optimizer = torch.optim.Adam(
             [{"params": model.parameters(),
-              "initial_lr": model_cfg["learning_rate"]}], 
-            model_cfg["learning_rate"], 
+              "initial_lr": model_cfg["learning_rate"]}],
+            model_cfg["learning_rate"],
             amsgrad=True)
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        except Exception as e:
+            print(e)
         # Optionally get the learning rate scheduler
         scheduler = get_lr_scheduler(
             lr_decay=model_cfg.get("lr_decay", False),
@@ -111,7 +121,7 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
             optimizer=optimizer)
         # If we start to use learning rate scheduler from the middle
         if ((scheduler is not None)
-            and (checkpoint.get("scheduler_state_dict", None) is not None)):
+                and (checkpoint.get("scheduler_state_dict", None) is not None)):
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
     # Initialize all the components.
@@ -127,12 +137,13 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
             model = restore_weights(model, checkpoint["model_state_dict"],
                                     strict=False)
             print("\t [Debug] Finished loading pretrained weights!")
-        
+
         model = model.cuda()
         optimizer = torch.optim.Adam(
             [{"params": model.parameters(),
-              "initial_lr": model_cfg["learning_rate"]}], 
-            model_cfg["learning_rate"], 
+              "initial_lr": model_cfg["learning_rate"]}],
+            model_cfg["learning_rate"],
+            weight_decay=0.0008,
             amsgrad=True)
         # Optionally get the learning rate scheduler
         scheduler = get_lr_scheduler(
@@ -140,7 +151,7 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
             lr_decay_cfg=model_cfg.get("lr_decay_cfg", None),
             optimizer=optimizer)
         start_epoch = 0
-    
+
     print("\t Successfully initialized model")
 
     # Define the total loss
@@ -178,36 +189,38 @@ def train_net(args, dataset_cfg, model_cfg, output_path):
             writer=writer,
             epoch=epoch)
 
-        # Do the validation
-        print("\n\n================== Validation ==================")
-        validate(
-            model=model,
-            model_cfg=model_cfg,
-            loss_func=loss_func,
-            metric_func=metric_func,
-            val_loader=test_loader,
-            writer=writer,
-            epoch=epoch)
-
         # Update the scheduler
         if scheduler is not None:
             scheduler.step()
 
-        # Save checkpoints
-        file_name = os.path.join(output_path,
-                                 "checkpoint-epoch%03d-end.tar"%(epoch))
-        print("[Info] Saving checkpoint %s ..." % file_name)
-        save_dict = {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "model_cfg": model_cfg}
-        if scheduler is not None:
-            save_dict.update({"scheduler_state_dict": scheduler.state_dict()})
-        torch.save(save_dict, file_name)
+        if epoch > 1 and save_freq > 0 and epoch % save_freq == 0:
 
-        # Remove the outdated checkpoints
-        remove_old_checkpoints(output_path, model_cfg.get("max_ckpt", 15))
+            # TODO： SWITCH
+            # Do the validation
+            print("\n\n================== Validation ==================")
+            validate(
+                model=model,
+                model_cfg=model_cfg,
+                loss_func=loss_func,
+                metric_func=metric_func,
+                val_loader=test_loader,
+                writer=writer,
+                epoch=epoch)
+
+            # Save checkpoints
+            file_name = os.path.join(output_path, "checkpoint-epoch%03d-end.tar" % epoch)
+            print("[Info] Saving checkpoint %s ..." % file_name)
+            save_dict = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "model_cfg": model_cfg}
+            if scheduler is not None:
+                save_dict.update({"scheduler_state_dict": scheduler.state_dict()})
+            torch.save(save_dict, file_name)
+
+        # # Remove the outdated checkpoints
+        # remove_old_checkpoints(output_path, model_cfg.get("max_ckpt", 15))
 
 
 def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
@@ -235,8 +248,8 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
             line_indices = data["ref_line_indices"].cuda()
             valid_mask = data["ref_valid_mask"].cuda()
             valid_mask2 = data["target_valid_mask"].cuda()
-            input_images = data["ref_image"].cuda()
-            input_images2 = data["target_image"].cuda()
+            input_images = data["ref_image"].cuda().float()
+            input_images2 = data["target_image"].cuda().float()
 
             # Run the forward pass
             outputs = model(input_images)
@@ -253,7 +266,7 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
             junc_map = data["junction_map"].cuda()
             heatmap = data["heatmap"].cuda()
             valid_mask = data["valid_mask"].cuda()
-            input_images = data["image"].cuda()
+            input_images = data["image"].cuda().float()
 
             # Run the forward pass
             outputs = model(input_images)
@@ -263,12 +276,12 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
                 outputs["junctions"], junc_map,
                 outputs["heatmap"], heatmap,
                 valid_mask)
-        
+
         total_loss = losses["total_loss"]
 
         # Update the model
         optimizer.zero_grad()
-        total_loss.backward()                     
+        total_loss.backward()
         optimizer.step()
 
         # Compute the global step
@@ -276,7 +289,7 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
         ############## Measure the metric error #########################
         # Only do this when needed
         if (((idx % model_cfg["disp_freq"]) == 0)
-            or ((idx % model_cfg["summary_freq"]) == 0)):
+                or ((idx % model_cfg["summary_freq"]) == 0)):
             junc_np = convert_junc_predictions(
                 outputs["junctions"], model_cfg["grid_size"],
                 model_cfg["detection_thresh"], 300)
@@ -290,7 +303,7 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
             else:
                 heatmap_np = torch.sigmoid(outputs["heatmap"].detach())
                 heatmap_np = heatmap_np.cpu().numpy().transpose(0, 2, 3, 1)
-            
+
             heatmap_gt_np = heatmap.cpu().numpy().transpose(0, 2, 3, 1)
             valid_mask_np = valid_mask.cpu().numpy().transpose(0, 2, 3, 1)
 
@@ -325,18 +338,20 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
             # Get gpu memory usage in GB
             gpu_mem_usage = torch.cuda.max_memory_allocated() / (1024 ** 3)
             if compute_descriptors:
-                print("Epoch [%d / %d] Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), descriptor_loss=%.4f (%.4f), gpu_mem=%.4fGB"
-                      % (epoch, model_cfg["epochs"], idx, len(train_loader),
-                         total_loss.item(), average["total_loss"], junc_loss,
-                         average["junc_loss"], heatmap_loss,
-                         average["heatmap_loss"], descriptor_loss,
-                         average["descriptor_loss"], gpu_mem_usage))
+                print(
+                    "Epoch [%d / %d] Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), descriptor_loss=%.4f (%.4f), lr=%.8f"
+                    % (epoch, model_cfg["epochs"], idx, len(train_loader),
+                       total_loss.item(), average["total_loss"], junc_loss,
+                       average["junc_loss"], heatmap_loss,
+                       average["heatmap_loss"], descriptor_loss,
+                       average["descriptor_loss"], model_cfg['learning_rate']))
             else:
-                print("Epoch [%d / %d] Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), gpu_mem=%.4fGB"
-                      % (epoch, model_cfg["epochs"], idx, len(train_loader),
-                         total_loss.item(), average["total_loss"],
-                         junc_loss, average["junc_loss"], heatmap_loss,
-                         average["heatmap_loss"], gpu_mem_usage))
+                print(
+                    "Epoch [%d / %d] Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), lr=%.8f"
+                    % (epoch, model_cfg["epochs"], idx, len(train_loader),
+                       total_loss.item(), average["total_loss"],
+                       junc_loss, average["junc_loss"], heatmap_loss,
+                       average["heatmap_loss"], model_cfg['learning_rate']))
             print("\t Junction     precision=%.4f (%.4f) / recall=%.4f (%.4f)"
                   % (results["junc_precision"], average["junc_precision"],
                      results["junc_recall"], average["junc_recall"]))
@@ -345,13 +360,14 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
                      average["junc_precision_nms"],
                      results["junc_recall_nms"], average["junc_recall_nms"]))
             print("\t Heatmap      precision=%.4f (%.4f) / recall=%.4f (%.4f)"
-                  %(results["heatmap_precision"],
-                    average["heatmap_precision"],
-                    results["heatmap_recall"], average["heatmap_recall"]))
+                  % (results["heatmap_precision"],
+                     average["heatmap_precision"],
+                     results["heatmap_recall"], average["heatmap_recall"]))
             if compute_descriptors:
                 print("\t Descriptors  matching score=%.4f (%.4f)"
-                      %(results["matching_score"], average["matching_score"]))
+                      % (results["matching_score"], average["matching_score"]))
 
+        continue
         # Record summaries
         if (idx % model_cfg["summary_freq"]) == 0:
             results = metric_func.metric_results
@@ -387,6 +403,7 @@ def train_single_epoch(model, model_cfg, optimizer, loss_func, metric_func,
                 "junc_prob_map": junc_np["junc_prob"][:num_images, ...],
                 "heatmap_pred": heatmap_np[:num_images, ...],
                 "heatmap_gt": heatmap_gt_np[:num_images, ...]}
+
             # Record the training summary
             record_train_summaries(
                 writer, global_step, scalars=scalar_summaries,
@@ -463,7 +480,6 @@ def validate(model, model_cfg, loss_func, metric_func, val_loader, writer, epoch
             heatmap_np = torch.sigmoid(outputs["heatmap"].detach())
             heatmap_np = heatmap_np.cpu().numpy().transpose(0, 2, 3, 1)
 
-
         heatmap_gt_np = heatmap.cpu().numpy().transpose(0, 2, 3, 1)
         valid_mask_np = valid_mask.cpu().numpy().transpose(0, 2, 3, 1)
 
@@ -495,12 +511,13 @@ def validate(model, model_cfg, loss_func, metric_func, val_loader, writer, epoch
             results = metric_func.metric_results
             average = average_meter.average()
             if compute_descriptors:
-                print("Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), descriptor_loss=%.4f (%.4f)"
-                      % (idx, len(val_loader),
-                         total_loss.item(), average["total_loss"],
-                         junc_loss, average["junc_loss"],
-                         heatmap_loss, average["heatmap_loss"],
-                         descriptor_loss, average["descriptor_loss"]))
+                print(
+                    "Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f), descriptor_loss=%.4f (%.4f)"
+                    % (idx, len(val_loader),
+                       total_loss.item(), average["total_loss"],
+                       junc_loss, average["junc_loss"],
+                       heatmap_loss, average["heatmap_loss"],
+                       descriptor_loss, average["descriptor_loss"]))
             else:
                 print("Iter [%d / %d] loss=%.4f (%.4f), junc_loss=%.4f (%.4f), heatmap_loss=%.4f (%.4f)"
                       % (idx, len(val_loader),
@@ -520,17 +537,17 @@ def validate(model, model_cfg, loss_func, metric_func, val_loader, writer, epoch
                      results["heatmap_recall"], average["heatmap_recall"]))
             if compute_descriptors:
                 print("\t Descriptors  matching score=%.4f (%.4f)"
-                      %(results["matching_score"], average["matching_score"]))
+                      % (results["matching_score"], average["matching_score"]))
 
-    # Record summaries
-    average = average_meter.average()
-    scalar_summaries = {"average": average}
-    # Record the training summary
-    record_test_summaries(writer, epoch, scalar_summaries)
+    # # Record summaries
+    # average = average_meter.average()
+    # scalar_summaries = {"average": average}
+    # # Record the training summary
+    # record_test_summaries(writer, epoch, scalar_summaries)
 
 
 def convert_junc_predictions(predictions, grid_size,
-                             detect_thresh=1/65, topk=300):
+                             detect_thresh=1 / 65, topk=300):
     """ Convert torch predictions to numpy arrays for evaluation. """
     # Convert to probability outputs first
     junc_prob = softmax(predictions.detach(), dim=1).cpu()
@@ -572,16 +589,16 @@ def record_train_summaries(writer, global_step, scalars, images):
     # Add descriptor loss
     if "descriptor_loss" in scalars.keys():
         key = "descriptor_loss"
-        writer.add_scalar("Train_loss/%s"%(key), scalars[key], global_step)
-        writer.add_scalar("Train_loss_average/%s"%(key), average[key],
+        writer.add_scalar("Train_loss/%s" % (key), scalars[key], global_step)
+        writer.add_scalar("Train_loss_average/%s" % (key), average[key],
                           global_step)
-    
+
     # Record weighting
     for key in scalars.keys():
         if "w_" in key:
-            writer.add_scalar("Train_weight/%s"%(key), scalars[key],
+            writer.add_scalar("Train_weight/%s" % (key), scalars[key],
                               global_step)
-    
+
     # Smoothed loss
     writer.add_scalar("Train_loss_average/junc_loss", average["junc_loss"],
                       global_step)
@@ -675,7 +692,7 @@ def record_test_summaries(writer, epoch, scalars):
     # Add descriptor loss
     if "descriptor_loss" in average.keys():
         key = "descriptor_loss"
-        writer.add_scalar("Val_loss/%s"%(key), average[key], epoch)
+        writer.add_scalar("Val_loss/%s" % (key), average[key], epoch)
 
     # Average metrics
     writer.add_scalar("Val_metrics/junc_precision", average["junc_precision"],
@@ -709,14 +726,14 @@ def plot_junction_detection(image_tensor, junc_pred_tensor,
     for i in range(batch_size):
         # Convert image to 255 uint8
         image = (image_tensor[i, :, :, :]
-                 * 255.).astype(np.uint8).transpose(1,2,0)
+                 * 255.).astype(np.uint8).transpose(1, 2, 0)
 
         # Plot groundtruth onto image
         junc_gt = junc_gt_tensor[i, ...]
         coord_gt = np.where(junc_gt.squeeze() > 0)
         points_gt = np.concatenate((coord_gt[0][..., None],
                                     coord_gt[1][..., None]),
-                                    axis=1)
+                                   axis=1)
         plot_gt = image.copy()
         for id in range(points_gt.shape[0]):
             cv2.circle(plot_gt, tuple(np.flip(points_gt[id, :])), 3,
@@ -728,7 +745,7 @@ def plot_junction_detection(image_tensor, junc_pred_tensor,
         coord_pred = np.where(junc_pred > 0)
         points_pred = np.concatenate((coord_pred[0][..., None],
                                       coord_pred[1][..., None]),
-                                      axis=1)
+                                     axis=1)
         plot_pred = image.copy()
         for id in range(points_pred.shape[0]):
             cv2.circle(plot_pred, tuple(np.flip(points_pred[id, :])), 3,
@@ -740,7 +757,7 @@ def plot_junction_detection(image_tensor, junc_pred_tensor,
         coord_pred_nms = np.where(junc_pred_nms > 0)
         points_pred_nms = np.concatenate((coord_pred_nms[0][..., None],
                                           coord_pred_nms[1][..., None]),
-                                          axis=1)
+                                         axis=1)
         plot_pred_nms = image.copy()
         for id in range(points_pred_nms.shape[0]):
             cv2.circle(plot_pred_nms, tuple(np.flip(points_pred_nms[id, :])),
